@@ -1,0 +1,2 @@
+docker buildx create --use --name insecure-builder --buildkitd-flags '--allow-insecure-entitlement security.insecure'
+docker build -t pi-gen --allow security.insecure --builder insecure-builder --output=. .
