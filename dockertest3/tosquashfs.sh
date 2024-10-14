@@ -35,4 +35,7 @@ for digest in $layer_digests; do
     fi
 
     echo "Created SquashFS file: $squashfs_file"
+
+    # Print to squashfs_list.txt
+    echo "$squashfs_file" >> squashfs_list.txt
 done

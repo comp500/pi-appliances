@@ -1,0 +1,80 @@
+#!/bin/sh
+
+PREREQ=""
+
+prereqs() {
+    echo "$PREREQ"
+}
+
+case "$1" in
+    prereqs)
+        prereqs
+        exit 0
+        ;;
+esac
+
+# Load necessary modules
+modprobe overlay
+modprobe squashfs
+modprobe vfat
+
+# Define variables
+BOOT_DEV="/dev/mmcblk0p1"
+FAT32_MOUNTPOINT="/mnt/fat32"
+SQUASHFS_LIST_FILE="$FAT32_MOUNTPOINT/squashfs_list.txt"
+
+# Mount the FAT32 partition
+if [ ! -b "$BOOT_DEV" ]; then
+    echo "Device $BOOT_DEV not found"
+    exit 1
+fi
+
+mkdir -p "$FAT32_MOUNTPOINT"
+mount -t vfat "$BOOT_DEV" "$FAT32_MOUNTPOINT"
+
+if [ $? -ne 0 ]; then
+    echo "Failed to mount FAT32 partition $BOOT_DEV"
+    exit 1
+fi
+
+# Check for the list of SquashFS images
+if [ ! -f "$SQUASHFS_LIST_FILE" ]; then
+    echo "SquashFS list file $SQUASHFS_LIST_FILE not found"
+    exit 1
+fi
+
+# Mount each SquashFS image
+LOWER_DIRS=""
+i=0
+while read -r SQUASHFS_IMAGE; do
+    i=$((i + 1))
+    LOWER_MOUNTPOINT="/mnt/lower$i"
+    mkdir -p "$LOWER_MOUNTPOINT"
+    mount -t squashfs -o ro "$FAT32_MOUNTPOINT/$SQUASHFS_IMAGE" "$LOWER_MOUNTPOINT"
+    if [ $? -ne 0 ]; then
+        echo "Failed to mount SquashFS image $SQUASHFS_IMAGE"
+        exit 1
+    fi
+    LOWER_DIRS="${LOWER_DIRS:+$LOWER_DIRS:}$LOWER_MOUNTPOINT"
+done < "$SQUASHFS_LIST_FILE"
+
+# Set up the OverlayFS
+mkdir -p /mnt/upper /mnt/work /mnt/overlay
+mount -t tmpfs tmpfs /mnt/upper
+mount -t overlay overlay -o lowerdir="$LOWER_DIRS",upperdir=/mnt/upper,workdir=/mnt/work /mnt/overlay
+
+if [ $? -ne 0 ]; then
+    echo "Failed to mount OverlayFS"
+    exit 1
+fi
+
+# Prepare for switch_root
+mount --move /dev /mnt/overlay/dev
+mount --move /proc /mnt/overlay/proc
+mount --move /sys /mnt/overlay/sys
+
+# Unmount the FAT32 partition
+umount "$FAT32_MOUNTPOINT"
+
+# Switch to the new root filesystem
+exec switch_root /mnt/overlay /sbin/init
